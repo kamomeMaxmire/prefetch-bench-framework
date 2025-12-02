@@ -1,0 +1,19 @@
+# 忽略构建目录
+build/
+cmake-build-debug/
+
+# 忽略 VS Code 配置文件 (可选，如果你想保留个人设置就忽略)
+.vscode/
+
+# 忽略编译产生的文件
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# 忽略最终的可执行文件
+prefetch_bench
+
+# 忽略 Mac 系统文件 (如果你用 Mac)
+.DS_Store
