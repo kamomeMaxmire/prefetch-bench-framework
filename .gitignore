@@ -1,19 +1,48 @@
-# 忽略构建目录
+# 构建目录
 build/
 cmake-build-debug/
+cmake-build-release/
 
-# 忽略 VS Code 配置文件 (可选，如果你想保留个人设置就忽略)
+# VS Code 配置
 .vscode/
 
-# 忽略编译产生的文件
+# 编译产生的文件
 *.o
 *.a
 *.so
 *.dylib
 *.exe
 
-# 忽略最终的可执行文件
+# 可执行文件
 prefetch_bench
+unit_tests
 
-# 忽略 Mac 系统文件 (如果你用 Mac)
+# Mac 系统文件
 .DS_Store
+
+# Linux perf 输出
+perf.data
+perf.data.old
+*.svg
+
+# 数据文件（太大，不提交到 git）
+data/*.zst
+data/*_uint64
+*_uint64
+*.zst
+
+# 临时文件
+*.tmp
+*.log
+*~
+
+# IDE 配置
+.idea/
+*.swp
+*.swo
+
+# CMake 生成的文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefiles
