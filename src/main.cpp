@@ -37,7 +37,7 @@ struct TestResult {
 };
 
 // 全局配置：每种策略跑几次
-const int NUM_RUNS = 5; 
+const int NUM_RUNS = 10; 
 
 // 辅助函数：运行单个策略多次并取平均值
 template<typename Func>
@@ -138,6 +138,12 @@ void test_strategies(
         [&](std::vector<uint64_t>& v){ return btree.batch_lookup_no_prefetch(queries, v); }, 
         queries.size()
     ));
+    // --- 2. Group Prefetch (G=8) ---
+    results.push_back(run_benchmark(
+        "Group Prefetch (G=8)", 
+        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<8>(queries, v); }, 
+        queries.size()
+    ));
     
     // --- 2. Group Prefetch (G=16) ---
     results.push_back(run_benchmark(
@@ -146,6 +152,12 @@ void test_strategies(
         queries.size()
     ));
     
+     // --- 3. Group Prefetch (G=24) ---
+    results.push_back(run_benchmark(
+        "Group Prefetch (G=24)", 
+        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<24>(queries, v); }, 
+        queries.size()
+    ));
     // --- 3. Group Prefetch (G=32) ---
     results.push_back(run_benchmark(
         "Group Prefetch (G=32)", 
@@ -153,6 +165,12 @@ void test_strategies(
         queries.size()
     ));
     
+     // --- 3. Group Prefetch (G=48) ---
+    results.push_back(run_benchmark(
+        "Group Prefetch (G=48)", 
+        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<48>(queries, v); }, 
+        queries.size()
+    ));
     // --- 4. Group Prefetch (G=64) ---
     results.push_back(run_benchmark(
         "Group Prefetch (G=64)", 
@@ -160,31 +178,137 @@ void test_strategies(
         queries.size()
     ));
 
-    // --- Output Table ---
-    std::cout << "\n╔══════════════════════════════════════════════════════════════════════════════╗" << std::endl;
-    std::cout << "║                     Benchmark Results (Avg of " << NUM_RUNS << " runs)                    ║" << std::endl;
-    std::cout << "╠══════════════════════════════════════════════════════════════════════════════╣" << std::endl;
-    std::cout << "║ Strategy                 Avg Time(ms)   Latency(ns)   Throughput(M)   Speedup║" << std::endl;
-    std::cout << "╠══════════════════════════════════════════════════════════════════════════════╣" << std::endl;
+    results.push_back(run_benchmark(
+        "SPP (D=1)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_spp<1>(queries, v); 
+        }, 
+        queries.size()
+    ));
 
-    double baseline_latency = results[0].avg_latency_ns;
+    // 测试 Static SPP (D=8, 总并发=8*树高)
+    results.push_back(run_benchmark(
+        "SPP (D=2)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_spp<2>(queries, v); 
+        }, 
+        queries.size()
+    ));
+    results.push_back(run_benchmark(
+        "SPP (D=3)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_spp<3>(queries, v); 
+        }, 
+        queries.size()
+    ));
+    results.push_back(run_benchmark(
+        "SPP (D=4)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_spp<4>(queries, v); 
+        }, 
+        queries.size()
+    ));
+    // =============================================================
+    // 运行 Vectorized 基准测试
+    // =============================================================
+    results.push_back(run_benchmark(
+        "Vectorized (V=32)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_vectorized<32>(queries, v); 
+        }, 
+        queries.size()
+    ));
+
+    results.push_back(run_benchmark(
+        "Vectorized (V=64)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_vectorized<64>(queries, v); 
+        }, 
+        queries.size()
+    ));
+    // =============================================================
+    // 运行 AMAC 基准测试
+    // =============================================================
+    results.push_back(run_benchmark(
+        "AMAC (Pool=32)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_amac<32>(queries, v); 
+        }, 
+        queries.size()
+    ));
+
+    results.push_back(run_benchmark(
+        "AMAC (Pool=64)", 
+        [&](std::vector<uint64_t>& v){ 
+            return btree.batch_lookup_amac<64>(queries, v); 
+        }, 
+        queries.size()
+    ));
+
+    // ================= 结果输出优化版 =================
     
+    // 1. 定义每一列的宽度 (这样修改起来方便，保证上下对齐)
+    const int W_NAME = 26;  // 策略名称列宽
+    const int W_TIME = 14;  // 时间列宽
+    const int W_LAT  = 14;  // 延迟列宽
+    const int W_TP   = 18;  // 吞吐量列宽
+    const int W_SPD  = 10;  // 加速比列宽
+    
+    // 计算总宽度 (用于画分割线)
+    // 2 是因为左右各有一个 "║ " 和 "║" 的边框修正
+    const int TOTAL_WIDTH = W_NAME + W_TIME + W_LAT + W_TP + W_SPD + 2; 
+
+    // 辅助 lambda：画横线
+    auto print_line = [&](const char* left, const char* mid, const char* right) {
+        std::cout << left;
+        for(int i=0; i<TOTAL_WIDTH; ++i) std::cout << mid;
+        std::cout << right << std::endl;
+    };
+
+    std::cout << "\n";
+    // 顶部分割线
+    print_line("╔", "═", "╗");
+
+    // 2. 打印表头 (Header)
+    std::cout << "║ " 
+              << std::left  << std::setw(W_NAME) << "Strategy"
+              << std::right << std::setw(W_TIME) << "Avg Time(ms)"
+              << std::right << std::setw(W_LAT)  << "Latency(ns)"
+              << std::right << std::setw(W_TP)   << "Throughput(M/Ops)"
+              << std::right << std::setw(W_SPD)  << "Speedup"
+              << " ║" << std::endl;
+
+    // 中间分割线
+    print_line("╠", "═", "╣");
+
+    // 3. 打印数据行 (Data Rows)
+    double baseline_time = results[0].avg_time_ms;
+
     for (const auto& r : results) {
-        double speedup = (baseline_latency - r.avg_latency_ns) / baseline_latency * 100.0;
+        double speedup_factor = baseline_time / r.avg_time_ms;
         
-        std::cout << "║ " << std::left << std::setw(23) << r.strategy_name 
-                  << std::right 
-                  << std::setw(11) << std::fixed << std::setprecision(1) << r.avg_time_ms
-                  << std::setw(14) << std::setprecision(1) << r.avg_latency_ns
-                  << std::setw(15) << std::setprecision(2) << r.query_throughput;
+        std::cout << "║ " 
+                  // Col 1: Name (左对齐)
+                  << std::left << std::setw(W_NAME) << r.strategy_name 
+                  // Col 2: Time (右对齐)
+                  << std::right << std::setw(W_TIME) << std::fixed << std::setprecision(1) << r.avg_time_ms
+                  // Col 3: Latency (右对齐)
+                  << std::setw(W_LAT) << std::fixed << std::setprecision(1) << r.avg_latency_ns
+                  // Col 4: Throughput (右对齐)
+                  << std::setw(W_TP) << std::fixed << std::setprecision(2) << r.query_throughput;
                   
+        // Col 5: Speedup (右对齐)
         if (r.strategy_name == "No Prefetch") {
-             std::cout << "        -    ║" << std::endl;
+             std::cout << std::setw(W_SPD) << "1.00x";
         } else {
-             std::cout << std::setw(9) << std::setprecision(1) << speedup << "%  ║" << std::endl;
+             std::cout << std::setw(W_SPD-1) << std::fixed << std::setprecision(2) << speedup_factor << "x";
         }
+        
+        std::cout << " ║" << std::endl;
     }
-    std::cout << "╚══════════════════════════════════════════════════════════════════════════════╝" << std::endl;
+
+    // 底部分割线
+    print_line("╚", "═", "╝");
 }
 
 int main() {

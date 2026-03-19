@@ -108,7 +108,7 @@ struct btree_default_set_traits
     /// find_upper() instead of binary_search, unless the node size is larger
     /// than this threshold. See notes at
     /// http://panthema.net/2013/0504-STX-B+Tree-Binary-vs-Linear-Search
-    static const size_t binsearch_threshold = 256;
+    static const size_t binsearch_threshold = 0;
 };
 
 /** Generates default traits for a B+ tree used as a map. It estimates leaf and
@@ -138,7 +138,7 @@ struct btree_default_map_traits
     /// find_upper() instead of binary_search, unless the node size is larger
     /// than this threshold. See notes at
     /// http://panthema.net/2013/0504-STX-B+Tree-Binary-vs-Linear-Search
-    static const size_t binsearch_threshold = 256;
+    static const size_t binsearch_threshold = 0;
 };
 
 /** @brief Basic class implementing a base B+ tree data structure in memory.
@@ -248,7 +248,7 @@ public:
     /// with BTREE_DEBUG and the key type must be std::ostream printable.
     static const bool                   debug = traits::debug;
 
-private:
+public:
     // *** Node Classes for In-Memory Nodes
 
     /// The header structure of each node in-memory. This structure is extended
@@ -1289,7 +1289,12 @@ private:
 
     /// Pointer to the B+ tree's root node, either leaf or inner node
     node*       m_root;
-
+public: 
+    // 给外部算法（SPP/Group）开的后门
+    const node* get_root() const {
+        return m_root;
+    }
+private:
     /// Pointer to first leaf in the double linked leaf chain
     leaf_node   *m_headleaf;
 
@@ -1625,7 +1630,7 @@ public:
         return const_reverse_iterator(begin());
     }
 
-private:
+public:
     // *** B+ Tree Node Binary Search Functions
 
     /// Searches for the first key in the node n greater or equal to key. Uses
@@ -1635,7 +1640,7 @@ private:
     template <typename node_type>
     inline int find_lower(const node_type *n, const key_type& key) const
     {
-        if ( 0 && sizeof(n->slotkey) > traits::binsearch_threshold )
+        if ( sizeof(n->slotkey) > traits::binsearch_threshold )
         {
             if (n->slotuse == 0) return 0;
 
@@ -1837,102 +1842,375 @@ const_iterator find(const key_type &key) const
     return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]))
         ? const_iterator(leaf, slot) : end();
 }
-/**
- * @brief Group Prefetching 批量查找实现
- * 核心逻辑是将 find 过程拆解，在内存等待期间让 CPU 去处理组内其他 key 的计算。
- */
+// /**
+//  * @brief Group Prefetching 批量查找实现
+//  * 核心逻辑是将 find 过程拆解，在内存等待期间让 CPU 去处理组内其他 key 的计算。
+//  */
+// // =================================================================================
+// // [修改版] Group Prefetch 进阶版：集成 Interleaved Binary Search
+// // =================================================================================
+
+// template <size_t GroupSize = 32>
+// void find_group(const std::vector<key_type>& keys, 
+//                 std::vector<data_type>& results, 
+//                 std::vector<bool>& found) 
+// {
+//     if (results.size() < keys.size()) results.resize(keys.size());
+//     if (found.size() < keys.size()) found.resize(keys.size());
+
+//     if (!m_root || keys.empty()) {
+//         if (!m_root) std::fill(found.begin(), found.end(), false);
+//         return;
+//     }
+
+//   // 用简单的数组代替之前的复杂结构体，更符合直觉
+//     const node* curr_nodes[GroupSize]; // 32个当前的节点指针
+//     size_t key_indices[GroupSize];     // 32个key在原数组中的下标
+
+//     // 临时变量数组 (相当于 find_lower 里的局部变量)
+//     int lo[GroupSize];
+//     int hi[GroupSize];
+
+//     // 外层循环：分批处理 (Batch Processing)
+//     for (size_t batch_start = 0; batch_start < keys.size(); batch_start += GroupSize) {
+//         size_t batch_end = std::min(keys.size(), batch_start + GroupSize);
+//         size_t this_batch_size = batch_end - batch_start;
+
+//         // --- 1. 初始化 & 预取 Root ---
+//         for (size_t i = 0; i < this_batch_size; ++i) {
+//             curr_nodes[i] = m_root;
+//             key_indices[i] = batch_start + i;
+//             // 预取 Root (Header + Key area)
+//             __builtin_prefetch(curr_nodes[i], 0, 3);
+//             //__builtin_prefetch((const char*)state[i].curr_node + 64, 0, 3);
+//         }
+
+//         // --- 2. 逐层下沉 (Inner Nodes) ---
+//         // 假设树是平衡的，只要第一个不是叶子，大家都要往下走
+//         while (!curr_nodes[0]->isleafnode()) {
+            
+//             // === Phase A: 批量二分查找 (Interleaved Binary Search) ===
+//             // 我们不再串行调用 find_lower，而是把 32 个二分查找交织在一起做
+            
+//             // A1. 初始化二分查找区间
+//             for (size_t i = 0; i < this_batch_size; ++i) {
+//                 lo[i] = 0;
+//                 hi[i] = curr_nodes[i]->slotuse; // slotuse 是 unsigned short
+//             }
+
+//             // A2. 执行多轮二分 (对于 SlotSize=32，最多 5-6 轮即可收敛)
+//             // 这里我们硬编码循环次数，避免 while(lo<hi) 的分支预测惩罚
+//             // 6 次迭代足以覆盖 64 个 slot (2^6 = 64)
+//             for (int step = 0; step < 8; ++step) {
+//                 for (size_t i = 0; i < this_batch_size; ++i) {
+//                     if (lo[i] < hi[i]) {
+//                         const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
+//                         int mid = (lo[i] + hi[i]) >> 1;
+                        
+//                         // 比较 Key (这是最耗时的部分，但现在是流水线化的)
+//                         if (key_lessequal(keys[key_indices[i]], inner->slotkey[mid])) {
+//                             hi[i] = mid;
+//                         } else {
+//                             lo[i] = mid + 1;
+//                         }
+//                     }
+//                 }
+//             }
+//             // 此时 state[i].lo 就是结果 slot
+
+//             // === Phase B: 更新节点指针 & 预取下一层 ===
+//             for (size_t i = 0; i < this_batch_size; ++i) {
+//                 const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
+//                 int slot = lo[i]; // 上一步计算出的结果
+
+//                 // 更新指针
+//                 curr_nodes[i] = inner->childid[slot];           
+//                 // 发射预取指令
+//                 __builtin_prefetch(curr_nodes[i], 0, 3);
+//                 //__builtin_prefetch((const char*)curr_nodes[i] + 64, 0, 3);
+//             }
+//         }
+
+//         // --- 3. 叶子节点处理 (Leaf Nodes) ---
+//         // 到了叶子节点，我们也用批量二分查找来加速 (原理同上)
+        
+//         // L1. 初始化
+//         for (size_t i = 0; i < this_batch_size; ++i) {
+//             lo[i] = 0;
+//             hi[i] =    curr_nodes[i]->slotuse;
+//         }
+
+//         // L2. 批量二分
+//         for (int step = 0; step < 6; ++step) {
+//             for (size_t i = 0; i < this_batch_size; ++i) {
+//                 if (lo[i] < hi[i]) {
+//                     const leaf_node* leaf = static_cast<const leaf_node*>(curr_nodes[i]);
+//                     int mid = (lo[i] + hi[i]) >> 1;
+                    
+//                     if (key_equal(keys[key_indices[i]], leaf->slotkey[mid]) || 
+//                         key_less(keys[key_indices[i]], leaf->slotkey[mid])) { // <= logic
+//                          hi[i] = mid;
+//                     } else {
+//                         lo[i] = mid + 1;
+//                     }
+//                 }
+//             }
+//         }
+
+//         // L3. 提取结果
+//         for (size_t i = 0; i < this_batch_size; ++i) {
+//             const leaf_node* leaf = static_cast<const leaf_node*>(curr_nodes[i]);
+//             int slot = lo[i];
+//             size_t final_idx = key_indices[i];
+
+//             if (slot < leaf->slotuse && key_equal(keys[final_idx], leaf->slotkey[slot])) {
+//                 if (!used_as_set) results[final_idx] = leaf->slotdata[slot];
+//                 found[final_idx] = true;
+//             } else {
+//                 found[final_idx] = false;
+//             }   
+//         }
+//     }
+// }
+// =================================================================================
+// [简化版] Group Prefetch + 批量二分查找
+// 逻辑完全复刻 find_lower，只是变成了"32个人同时做"
+// =================================================================================
+
 template <size_t GroupSize = 32>
 void find_group(const std::vector<key_type>& keys, 
                 std::vector<data_type>& results, 
                 std::vector<bool>& found) 
 {
-    // 初始化结果数组
-    if (results.size() < keys.size()) results.resize(keys.size()); 
-    if (found.size() < keys.size()) found.resize(keys.size()); 
+    // 0. 准备工作
+    if (results.size() < keys.size()) results.resize(keys.size());
+    if (found.size() < keys.size()) found.resize(keys.size());
+    if (!m_root || keys.empty()) return;
 
-    // 定义遍历状态结构
-    struct TraversalState {
-        const node* curr_node; // 当前所在的节点指针
-        size_t key_idx;        // 在原始 keys 数组中的下标
-    };
+    // 用简单的数组代替之前的复杂结构体，更符合直觉
+    const node* curr_nodes[GroupSize]; // 32个当前的节点指针
+    size_t key_indices[GroupSize];     // 32个key在原数组中的下标
 
-    // 1. 分批次处理 (Outer Loop: Batch)
+    // 临时变量数组 (相当于 find_lower 里的局部变量)
+    int lo[GroupSize];
+    int hi[GroupSize];
+
+    // 外层大循环：每次处理 GroupSize 个
     for (size_t batch_start = 0; batch_start < keys.size(); batch_start += GroupSize) {
-        size_t batch_end = std::min(keys.size(), batch_start + GroupSize);
-        size_t this_batch_size = batch_end - batch_start;
+        size_t this_batch_size = std::min(GroupSize, keys.size() - batch_start);
 
-        // 如果树为空，直接返回未找到
-        if (!m_root) {
-            for (size_t i = 0; i < this_batch_size; ++i) found[batch_start + i] = false;
-            continue; 
-        }
-
-        // 状态数组 
-        TraversalState state[GroupSize];
-
-        // --- 初始化阶段 (Init Phase) ---
-        // 将这一组的所有 key 都指向 Root，并预取 Root
+        // --- 1. 初始化 & 第一次预取 ---
         for (size_t i = 0; i < this_batch_size; ++i) {
-            state[i].curr_node = m_root;
-            state[i].key_idx = batch_start + i;
+            curr_nodes[i] = m_root;
+            key_indices[i] = batch_start + i;
             
-            // [Prefetch] 预取 Root 节点及其关键数据
-            // 参数说明: addr, rw(0=read), locality(3=high temporal locality)
-            __builtin_prefetch(state[i].curr_node, 0, 3);
-            
-            // 激进预取：尝试预取节点前半部分的数据区（假设节点较大）
-           // __builtin_prefetch((const char*)state[i].curr_node + 64, 0, 3);
+            // 告诉 CPU：把 Root 拿来！
+            __builtin_prefetch(curr_nodes[i], 0, 3);
+            __builtin_prefetch((const char*)curr_nodes[i] + 64, 0, 3);
         }
 
-        // --- 逐层下沉 (Tree Descent Loop) ---
-        // 利用 B+ 树的平衡特性，只需判断第一个 key 是否到达叶子即可
-        while (!state[0].curr_node->isleafnode()) {
+        // --- 2. 逐层下潜 ---
+        // 只要第一个还没到叶子，大家就都要继续往下走
+        while (!curr_nodes[0]->isleafnode()) {
+
+            // === 核心：批量二分查找 (Inner Node) ===
             
-            // Stage A: 计算阶段 (Computation Phase)
-            // 此时所有 state[i].curr_node 应该已经在 L1 Cache 中（由上一轮的 Stage B 预取）
+            // A. 初始化 lo/hi (和 find_lower 一模一样)
             for (size_t i = 0; i < this_batch_size; ++i) {
-                const inner_node* inner = static_cast<const inner_node*>(state[i].curr_node);
-                const key_type& key = keys[state[i].key_idx];
-
-                // 使用二分查找或线性查找确定子节点索引
-                // 注意：这里调用内部 private 函数 find_lower
-                int slot = find_lower(inner, key);
-
-                // 更新指针指向子节点
-                state[i].curr_node = inner->childid[slot];
+                lo[i] = 0;
+                hi[i] = curr_nodes[i]->slotuse;
             }
 
-            // Stage B: 内存访问阶段 (Memory Access Phase)
-            // 批量发射下一层节点的预取指令。
-            // 这里的关键是：CPU 发出 prefetch 指令是非阻塞的，
-            // 当处理 state[0] 的 prefetch 时，state[1]...state[31] 的 prefetch 也会紧接着发出，
-            // 从而填满内存带宽。
-            for (size_t i = 0; i < this_batch_size; ++i) {
-                __builtin_prefetch(state[i].curr_node, 0, 3);
-                // 同样，对于大节点，可能需要预取额外的缓存行
-                __builtin_prefetch((const char*)state[i].curr_node + 64, 0, 3);
-            }
-        }
-
-        // --- 叶子节点处理 (Leaf Processing) ---
-        // 此时所有 state[i].curr_node 都是叶子节点，且已在上一轮 Stage B 预取
-        for (size_t i = 0; i < this_batch_size; ++i) {
-            const leaf_node* leaf = static_cast<const leaf_node*>(state[i].curr_node);
-            const key_type& key = keys[state[i].key_idx];
-            size_t final_idx = state[i].key_idx;
-
-            // 在叶子节点内查找
-            int slot = find_lower(leaf, key);
-
-            // 验证是否找到
-            if (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot])) {
-                found[final_idx] = true;
-                // 注意：如果是 set 模式，这里没有 slotdata，需要判断
-                if (!used_as_set) {
-                    results[final_idx] = leaf->slotdata[slot];
+            // B. 循环比较
+            // 注意：这里不用 while(lo<hi)，而是固定循环几次。
+            // 因为大家的查找进度不一样，用固定次数(比如8次)能保证所有人都查完，且方便CPU流水线。
+            // 8次循环足以覆盖 256 个 slot (2^8 = 256)
+            for (int step = 0; step < 8; ++step) {
+                for (size_t i = 0; i < this_batch_size; ++i) {
+                    // 只要还没查完 (lo < hi)，就继续查
+                    if (lo[i] < hi[i]) {
+                        const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
+                        
+                        // --- 这就是你熟悉的 find_lower 逻辑 ---
+                        int mid = (lo[i] + hi[i]) >> 1;
+                        
+                        if (key_lessequal(keys[key_indices[i]], inner->slotkey[mid])) {
+                            hi[i] = mid;      // key <= mid
+                        } else {
+                            lo[i] = mid + 1;  // key > mid
+                        }
+                        // -------------------------------------
+                    }
                 }
+            }
+
+            // === 结果：更新指针 & 预取下一层 ===
+            for (size_t i = 0; i < this_batch_size; ++i) {
+                // 此时 lo[i] 就是找到的 slot
+                const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
+                
+                // 走到孩子节点
+                curr_nodes[i] = inner->childid[lo[i]];
+                
+                // 预取孩子节点 (关键步骤！)
+                __builtin_prefetch(curr_nodes[i], 0, 3);
+                __builtin_prefetch((const char*)curr_nodes[i] + 64, 0, 3);
+            }
+        }
+
+        // --- 3. 叶子节点处理 (Leaf Node) ---
+        // 逻辑和上面几乎完全一样，只是把 inner_node 换成了 leaf_node
+
+        // A. 初始化
+        for (size_t i = 0; i < this_batch_size; ++i) {
+            lo[i] = 0;
+            hi[i] = curr_nodes[i]->slotuse;
+        }
+
+        // B. 批量二分查找 (Leaf)
+        for (int step = 0; step < 8; ++step) {
+            for (size_t i = 0; i < this_batch_size; ++i) {
+                if (lo[i] < hi[i]) {
+                    const leaf_node* leaf = static_cast<const leaf_node*>(curr_nodes[i]);
+                    int mid = (lo[i] + hi[i]) >> 1;
+                    
+                    if (key_lessequal(keys[key_indices[i]], leaf->slotkey[mid])) {
+                        hi[i] = mid;
+                    } else {
+                        lo[i] = mid + 1;
+                    }
+                }
+            }
+        }
+
+        // C. 收集结果
+        for (size_t i = 0; i < this_batch_size; ++i) {
+            const leaf_node* leaf = static_cast<const leaf_node*>(curr_nodes[i]);
+            int slot = lo[i];
+            size_t final_idx = key_indices[i];
+
+            // 最后的校验 (和 find_lower 返回后的处理一样)
+            if (slot < leaf->slotuse && key_equal(keys[final_idx], leaf->slotkey[slot])) {
+                if (!used_as_set) results[final_idx] = leaf->slotdata[slot];
+                found[final_idx] = true;
             } else {
                 found[final_idx] = false;
+            }
+        }
+    }
+}
+// =================================================================================
+// [SPP Implementation] Software Pipelined Prefetching
+// 维护一个固定深度的流水线窗口，模拟"滑动窗口"执行
+// =================================================================================
+
+template <size_t PipelineDepth = 4>
+void find_spp(const std::vector<key_type>& keys, 
+              std::vector<data_type>& results, 
+              std::vector<bool>& found) 
+{
+    // 0. 准备工作
+    if (results.size() < keys.size()) results.resize(keys.size());
+    if (found.size() < keys.size()) found.resize(keys.size());
+    if (!m_root || keys.empty()) return;
+
+    // 定义流水线中的单一任务状态
+    struct QueryState {
+        const node* curr_node; // 当前走到哪了
+        size_t key_idx;        // 是第几个查询
+        bool is_active;        // 这个槽位是否正在干活
+    };
+
+    // 环形缓冲区 (Ring Buffer)
+    QueryState ring[PipelineDepth];
+    for (size_t i = 0; i < PipelineDepth; ++i) ring[i].is_active = false;
+
+    size_t next_query_idx = 0; // 待处理的下一个查询 ID
+    size_t finished_count = 0; // 已完成的查询数量
+    const size_t total_queries = keys.size();
+
+    // 辅助 Lambda: 尝试填充一个空闲槽位
+    auto try_fill_slot = [&](size_t slot_idx) {
+        if (next_query_idx < total_queries) {
+            // 装填新任务
+            ring[slot_idx].key_idx = next_query_idx++;
+            ring[slot_idx].curr_node = m_root;
+            ring[slot_idx].is_active = true;
+
+            // [Stage 0] 预取 Root，开始新的旅程
+            __builtin_prefetch(m_root, 0, 3);
+        } else {
+            // 没任务了，关掉槽位
+            ring[slot_idx].is_active = false;
+        }
+    };
+
+    // --- Prologue: 预热流水线 ---
+    // 先把前 PipelineDepth 个查询塞进去
+    for (size_t i = 0; i < PipelineDepth; ++i) {
+        try_fill_slot(i);
+    }
+
+    // --- Main Loop: 只要还有没做完的，就一直转 ---
+    while (finished_count < total_queries) {
+        
+        // 轮询流水线中的每个槽位
+        for (size_t i = 0; i < PipelineDepth; ++i) {
+            // 如果这个槽位是空的(任务跑完了且没新任务了)，跳过
+            if (!ring[i].is_active) continue;
+
+            // 获取当前状态
+            QueryState& state = ring[i];
+            const key_type& key = keys[state.key_idx];
+
+            // === 分支 1: 到达叶子节点 (Leaf Node) ===
+            if (state.curr_node->isleafnode()) {
+                const leaf_node* leaf = static_cast<const leaf_node*>(state.curr_node);
+                
+                // 1. 标准二分查找 (Leaf)
+                // 因为是 Pipeline，此时 leaf 已经在 Cache 里了，直接查
+                int lo = 0, hi = leaf->slotuse;
+                while (lo < hi) {
+                    int mid = (lo + hi) >> 1;
+                    if (key_lessequal(key, leaf->slotkey[mid])) hi = mid;
+                    else lo = mid + 1;
+                }
+                
+                // 2. 写入结果
+                size_t idx = state.key_idx;
+                if (lo < leaf->slotuse && key_equal(key, leaf->slotkey[lo])) {
+                    if (!used_as_set) results[idx] = leaf->slotdata[lo];
+                    found[idx] = true;
+                } else {
+                    found[idx] = false;
+                }
+
+                // 3. 标记完成
+                finished_count++;
+
+                // 4. [Refill] 马上装填下一个查询！
+                // 这是 SPP 的核心：旧的不去，新的不来
+                try_fill_slot(i);
+            } 
+            // === 分支 2: 中间节点 (Inner Node) ===
+            else {
+                const inner_node* inner = static_cast<const inner_node*>(state.curr_node);
+
+                // 1. 标准二分查找 (Inner)
+                // 同样，此时 inner 应该已经在 Cache 里了
+                int lo = 0, hi = inner->slotuse;
+                while (lo < hi) {
+                    int mid = (lo + hi) >> 1;
+                    if (key_lessequal(key, inner->slotkey[mid])) hi = mid;
+                    else lo = mid + 1;
+                }
+                
+                // 2. 更新指针：指向下一层
+                state.curr_node = inner->childid[lo];
+
+                // 3. [Prefetch] 发射下一层的预取请求
+                // 这个请求会在"下一轮循环"轮到这个槽位时完成
+                __builtin_prefetch(state.curr_node, 0, 3);
             }
         }
     }
