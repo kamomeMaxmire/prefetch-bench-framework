@@ -15,6 +15,7 @@
 #include "../include/utils/Timer.hpp"
 #include "../include/data/SOSDDataLoader.hpp"
 #include "../include/structures/btree/BTree.hpp"
+#include "../include/structures/btree/profiling/LayerProfiler.hpp"
 
 using namespace utils;
 using namespace data;
@@ -138,113 +139,135 @@ void test_strategies(
         [&](std::vector<uint64_t>& v){ return btree.batch_lookup_no_prefetch(queries, v); }, 
         queries.size()
     ));
-    // --- 2. Group Prefetch (G=8) ---
-    results.push_back(run_benchmark(
-        "Group Prefetch (G=8)", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<8>(queries, v); }, 
-        queries.size()
-    ));
+    // // --- 2. Group Prefetch (G=8) ---
+    // results.push_back(run_benchmark(
+    //     "Group Prefetch (G=8)", 
+    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<8>(queries, v); }, 
+    //     queries.size()
+    // ));
     
-    // --- 2. Group Prefetch (G=16) ---
-    results.push_back(run_benchmark(
-        "Group Prefetch (G=16)", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<16>(queries, v); }, 
-        queries.size()
-    ));
+    // // --- 2. Group Prefetch (G=16) ---
+    // results.push_back(run_benchmark(
+    //     "Group Prefetch (G=16)", 
+    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<16>(queries, v); }, 
+    //     queries.size()
+    // ));
     
-     // --- 3. Group Prefetch (G=24) ---
-    results.push_back(run_benchmark(
-        "Group Prefetch (G=24)", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<24>(queries, v); }, 
-        queries.size()
-    ));
-    // --- 3. Group Prefetch (G=32) ---
-    results.push_back(run_benchmark(
-        "Group Prefetch (G=32)", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<32>(queries, v); }, 
-        queries.size()
-    ));
+    //  // --- 3. Group Prefetch (G=24) ---
+    // results.push_back(run_benchmark(
+    //     "Group Prefetch (G=24)", 
+    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<24>(queries, v); }, 
+    //     queries.size()
+    // ));
+    // // --- 3. Group Prefetch (G=32) ---
+    // results.push_back(run_benchmark(
+    //     "Group Prefetch (G=32)", 
+    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<32>(queries, v); }, 
+    //     queries.size()
+    // ));
     
-     // --- 3. Group Prefetch (G=48) ---
-    results.push_back(run_benchmark(
-        "Group Prefetch (G=48)", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<48>(queries, v); }, 
-        queries.size()
-    ));
-    // --- 4. Group Prefetch (G=64) ---
-    results.push_back(run_benchmark(
-        "Group Prefetch (G=64)", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<64>(queries, v); }, 
-        queries.size()
-    ));
+    //  // --- 3. Group Prefetch (G=48) ---
+    // results.push_back(run_benchmark(
+    //     "Group Prefetch (G=48)", 
+    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<48>(queries, v); }, 
+    //     queries.size()
+    // ));
+    // // --- 4. Group Prefetch (G=64) ---
+    // results.push_back(run_benchmark(
+    //     "Group Prefetch (G=64)", 
+    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<64>(queries, v); }, 
+    //     queries.size()
+    // ));
 
-    results.push_back(run_benchmark(
-        "SPP (D=1)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_spp<1>(queries, v); 
-        }, 
-        queries.size()
-    ));
+    // results.push_back(run_benchmark(
+    //     "SPP (D=1)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_spp<1>(queries, v); 
+    //     }, 
+    //     queries.size()
+    // ));
 
-    // 测试 Static SPP (D=8, 总并发=8*树高)
-    results.push_back(run_benchmark(
-        "SPP (D=2)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_spp<2>(queries, v); 
-        }, 
-        queries.size()
-    ));
-    results.push_back(run_benchmark(
-        "SPP (D=3)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_spp<3>(queries, v); 
-        }, 
-        queries.size()
-    ));
-    results.push_back(run_benchmark(
-        "SPP (D=4)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_spp<4>(queries, v); 
-        }, 
-        queries.size()
-    ));
-    // =============================================================
-    // 运行 Vectorized 基准测试
-    // =============================================================
-    results.push_back(run_benchmark(
-        "Vectorized (V=32)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_vectorized<32>(queries, v); 
-        }, 
-        queries.size()
-    ));
+    // // 测试 Static SPP (D=8, 总并发=8*树高)
+    // results.push_back(run_benchmark(
+    //     "SPP (D=2)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_spp<2>(queries, v); 
+    //     }, 
+    //     queries.size()
+    // ));
+    // results.push_back(run_benchmark(
+    //     "SPP (D=3)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_spp<3>(queries, v); 
+    //     }, 
+    //     queries.size()
+    // ));
+    // results.push_back(run_benchmark(
+    //     "SPP (D=4)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_spp<4>(queries, v); 
+    //     }, 
+    //     queries.size()
+    // ));
+    // // =============================================================
+    // // 运行 Vectorized 基准测试
+    // // =============================================================
+    // results.push_back(run_benchmark(
+    //     "Vectorized (V=32)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_vectorized<32>(queries, v); 
+    //     }, 
+    //     queries.size()
+    // ));
 
-    results.push_back(run_benchmark(
-        "Vectorized (V=64)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_vectorized<64>(queries, v); 
-        }, 
-        queries.size()
-    ));
-    // =============================================================
-    // 运行 AMAC 基准测试
-    // =============================================================
-    results.push_back(run_benchmark(
-        "AMAC (Pool=32)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_amac<32>(queries, v); 
-        }, 
-        queries.size()
-    ));
+    // results.push_back(run_benchmark(
+    //     "Vectorized (V=64)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_vectorized<64>(queries, v); 
+    //     }, 
+    //     queries.size()
+    // ));
+    // // =============================================================
+    // // 运行 AMAC 基准测试
+    // // =============================================================
+    // // =============================================================
+    // // 运行 FSM AMAC 基准测试 (梯度 Pool Size)
+    // // =============================================================
+    
+    // results.push_back(run_benchmark(
+    //     "FSM AMAC (P=16)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_fsm_amac<16>(queries, v); 
+    //     }, queries.size()
+    // ));
 
-    results.push_back(run_benchmark(
-        "AMAC (Pool=64)", 
-        [&](std::vector<uint64_t>& v){ 
-            return btree.batch_lookup_amac<64>(queries, v); 
-        }, 
-        queries.size()
-    ));
+    // results.push_back(run_benchmark(
+    //     "FSM AMAC (P=32)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_fsm_amac<32>(queries, v); 
+    //     }, queries.size()
+    // ));
 
+    // results.push_back(run_benchmark(
+    //     "FSM AMAC (P=64)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_fsm_amac<64>(queries, v); 
+    //     }, queries.size()
+    // ));
+
+    // results.push_back(run_benchmark(
+    //     "FSM AMAC (P=128)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_fsm_amac<128>(queries, v); 
+    //     }, queries.size()
+    // ));
+
+    // results.push_back(run_benchmark(
+    //     "FSM AMAC (P=256)", 
+    //     [&](std::vector<uint64_t>& v){ 
+    //         return btree.batch_lookup_fsm_amac<256>(queries, v); 
+    //     }, queries.size()
+    // ));
     // ================= 结果输出优化版 =================
     
     // 1. 定义每一列的宽度 (这样修改起来方便，保证上下对齐)
@@ -307,8 +330,17 @@ void test_strategies(
         std::cout << " ║" << std::endl;
     }
 
-    // 底部分割线
-    print_line("╚", "═", "╝");
+    // // 底部分割线
+    // print_line("╚", "═", "╝");
+    // // 在结果表格打印后加
+    // std::cout << "\n\n=== Per-Layer Cycle Profile ===\n";
+
+    // {
+    // using P = structures::btree::profiling::LayerProfiler<BTreeType>;
+    // const double CPU_GHZ = 2.60;  // 用 lscpu | grep MHz 查你的主频
+
+    // P::run(btree.get_tree(), queries, "No Prefetch",     P::MODE_SERIAL, 0,  CPU_GHZ);
+    // }
 }
 
 int main() {
@@ -342,6 +374,5 @@ int main() {
 
     // 3. 运行测试
     test_strategies(keys, queries);
-    
     return 0;
 }

@@ -26,12 +26,12 @@ public:
         auto root = btree.get_root();
         if (!root || queries.empty()) return found;
 
-        // 必须引用 BTree 内部定义的节点类型
+        // using declarations for node types
         using inner_node = typename BTree::inner_node;
         using leaf_node = typename BTree::leaf_node;
         using node = typename BTree::node;
 
-        // 状态数组
+        // group prefetching: process queries in batches of GROUP_SIZE
         const node* curr_nodes[GROUP_SIZE];
         size_t key_indices[GROUP_SIZE];
         int lo[GROUP_SIZE];

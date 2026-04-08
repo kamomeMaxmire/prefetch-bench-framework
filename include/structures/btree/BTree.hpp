@@ -10,7 +10,7 @@
 #include "algorithms/GroupPrefetch.hpp"
 #include "algorithms/SPP.hpp" 
 #include "algorithms/Vectorized.hpp"
-#include "algorithms/AMAC3.hpp"
+#include "algorithms/AMAC.hpp"
 
 namespace structures {
 namespace btree {
@@ -118,14 +118,21 @@ public:
     // =============================================================
     // 策略 5: AMAC (Asynchronous Memory Access Chaining)
     // =============================================================
+    // 在 BTreeWithPrefetch 类内部：
+    // 真实探测版 AMAC (Probing AMAC)
+    // 真实探测版 AMAC (Probing AMAC)
+    // 纯软件 FSM (无预取)
+    // 纯软件 FSM (无预取)
+    // 满血版 FSM AMAC (带预取，支持调整并发池大小)
     template<size_t POOL_SIZE = 64>
-    std::vector<bool> batch_lookup_amac(
-        const std::vector<key_type>& queries,
-        std::vector<mapped_type>& results
+    std::vector<bool> batch_lookup_fsm_amac(
+        const std::vector<typename BTreeType::key_type>& queries, 
+        std::vector<typename BTreeType::data_type>& results
     ) {
-        return algorithms::AMACSearch<BTreeType>::template batch_lookup<POOL_SIZE>(tree_, queries, results);
+        // 传入指定的 POOL_SIZE，第二个参数 IGNORED 传 0 即可
+        return algorithms::AMACSearch<BTreeType>::template batch_lookup<POOL_SIZE, 0>(tree_, queries, results); 
     }
+    
 };
-
 } // namespace btree
 } // namespace structures
