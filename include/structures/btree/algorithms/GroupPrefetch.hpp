@@ -14,6 +14,20 @@ public:
     using Key = typename BTree::key_type;
     using Value = typename BTree::data_type;
 
+    static constexpr int calc_steps(int max_slots) {
+        int steps = 0, capacity = 1;
+        while (capacity <= max_slots) {
+            capacity *= 2;
+            steps++;
+        }
+        return steps;
+    }
+    
+    // 利用 B 树暴露的槽位常量，让编译器直接算好这两个步数
+    static constexpr int INNER_STEPS = calc_steps(BTree::innerslotmax);
+    static constexpr int LEAF_STEPS  = calc_steps(BTree::leafslotmax);
+    // =========================================================
+
     template<size_t GROUP_SIZE = 32>
     static std::vector<bool> batch_lookup(
         BTree& btree,
@@ -33,7 +47,6 @@ public:
 
         // group prefetching: process queries in batches of GROUP_SIZE
         const node* curr_nodes[GROUP_SIZE];
-        size_t key_indices[GROUP_SIZE];
         int lo[GROUP_SIZE];
         int hi[GROUP_SIZE];
 
@@ -43,8 +56,11 @@ public:
             // --- Init & Prefetch Root ---
             for (size_t i = 0; i < this_batch_size; ++i) {
                 curr_nodes[i] = root;
-                key_indices[i] = batch_start + i;
-                __builtin_prefetch(curr_nodes[i], 0, 3);
+                __builtin_prefetch(curr_nodes[i], 0, 1);
+                __builtin_prefetch(reinterpret_cast<const char*>(curr_nodes[i]) + 64, 0, 1);
+                __builtin_prefetch(reinterpret_cast<const char*>(curr_nodes[i]) + 128, 0, 1);
+                __builtin_prefetch(reinterpret_cast<const char*>(curr_nodes[i]) + 192, 0, 1);
+
             }
 
             // --- Inner Nodes ---
@@ -55,23 +71,32 @@ public:
                     hi[i] = curr_nodes[i]->slotuse;
                 }
                 
-                // B. Interleaved Binary Search
-                for (int step = 0; step < 8; ++step) {
+                // B. Interleaved Binary Search (执行除最后一步外的所有步骤)
+                for (int step = 0; step < INNER_STEPS - 1; ++step) {
                     for (size_t i = 0; i < this_batch_size; ++i) {
                         if (lo[i] < hi[i]) {
                             const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
                             int mid = (lo[i] + hi[i]) >> 1;
-                            if (queries[key_indices[i]] <= inner->slotkey[mid]) hi[i] = mid;
+                            if (queries[batch_start + i] <= inner->slotkey[mid]) hi[i] = mid;
                             else lo[i] = mid + 1;
                         }
                     }
                 }
 
-                // C. Advance & Prefetch
+                // C. 将最后一步二分查找和子节点预取合并，消灭一次完整的 for 循环开销
                 for (size_t i = 0; i < this_batch_size; ++i) {
+                    if (lo[i] < hi[i]) {
+                        const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
+                        int mid = (lo[i] + hi[i]) >> 1;
+                        if (queries[batch_start + i] <= inner->slotkey[mid]) hi[i] = mid;
+                        else lo[i] = mid + 1;
+                    }
                     const inner_node* inner = static_cast<const inner_node*>(curr_nodes[i]);
                     curr_nodes[i] = inner->childid[lo[i]];
-                    __builtin_prefetch(curr_nodes[i], 0, 3);
+                    __builtin_prefetch(curr_nodes[i], 0, 1);
+                    __builtin_prefetch(reinterpret_cast<const char*>(curr_nodes[i]) + 64, 0, 1);
+                    __builtin_prefetch(reinterpret_cast<const char*>(curr_nodes[i]) + 128, 0, 1);
+                    __builtin_prefetch(reinterpret_cast<const char*>(curr_nodes[i]) + 192, 0, 1);
                 }
             }
 
@@ -80,12 +105,12 @@ public:
                 lo[i] = 0; 
                 hi[i] = curr_nodes[i]->slotuse;
             }
-            for (int step = 0; step < 8; ++step) {
+            for (int step = 0; step < LEAF_STEPS; ++step) {
                 for (size_t i = 0; i < this_batch_size; ++i) {
                     if (lo[i] < hi[i]) {
                         const leaf_node* leaf = static_cast<const leaf_node*>(curr_nodes[i]);
                         int mid = (lo[i] + hi[i]) >> 1;
-                        if (queries[key_indices[i]] <= leaf->slotkey[mid]) hi[i] = mid;
+                        if (queries[batch_start + i] <= leaf->slotkey[mid]) hi[i] = mid;
                         else lo[i] = mid + 1;
                     }
                 }
@@ -95,7 +120,7 @@ public:
             for (size_t i = 0; i < this_batch_size; ++i) {
                 const leaf_node* leaf = static_cast<const leaf_node*>(curr_nodes[i]);
                 int slot = lo[i];
-                size_t idx = key_indices[i];
+                size_t idx = batch_start + i;
                 
                 if (slot < leaf->slotuse && queries[idx] == leaf->slotkey[slot]) {
                     results[idx] = leaf->slotdata[slot];

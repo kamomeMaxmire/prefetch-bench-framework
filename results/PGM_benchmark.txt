@@ -1,0 +1,196 @@
+
+=== B+ Tree Group Prefetch Benchmark ===
+[Loading] Reading data/osm_cellids_200M_uint64...
+    Loaded 200000000 keys from data/osm_cellids_200M_uint64 (Header skipped)
+    Loaded 200000000 keys.
+[Queries] Generating 1000000 queries from dataset...
+    Shuffling queries to maximize L3 Cache Misses...
+
+  ┌─ Building B+ Tree ────────────────────────────────────────
+  │  Build Time:    2273.83 ms
+  │  Tree Height:   6 levels
+  │  Total Keys:    200000000
+  │  Index Size:    3453126320 Bytes (3293.16 MB)
+  └───────────────────────────────────────────────────────────
+
+  Running Benchmark (10 runs per strategy)...
+  ------------------------------------------------------------
+  Testing No Prefetch              ... Done (Avg: 712.00 ms)
+
+  ============================================================
+  Part 1: PGM-Index Epsilon Scaling Test
+  ============================================================
+
+  ┌─ Building PGM-Index (Epsilon = 4  ) ────────────────────
+  │  Build Time:    10387.67 ms
+  │  Index Size:    95068024 Bytes (90.66 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=4, NoPref)      ... Done (Avg: 328.18 ms)
+
+  ┌─ Building PGM-Index (Epsilon = 8  ) ────────────────────
+  │  Build Time:    9801.93 ms
+  │  Index Size:    45898136 Bytes (43.77 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=8, NoPref)      ... Done (Avg: 343.40 ms)
+
+  ┌─ Building PGM-Index (Epsilon = 16 ) ────────────────────
+  │  Build Time:    9381.55 ms
+  │  Index Size:    22234776 Bytes (21.20 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=16, NoPref)     ... Done (Avg: 326.84 ms)
+
+  ┌─ Building PGM-Index (Epsilon = 32 ) ────────────────────
+  │  Build Time:    8983.02 ms
+  │  Index Size:    10888384 Bytes (10.38 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=32, NoPref)     ... Done (Avg: 316.44 ms)
+
+  ┌─ Building PGM-Index (Epsilon = 64 ) ────────────────────
+  │  Build Time:    8847.81 ms
+  │  Index Size:    5388560 Bytes (5.14 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=64, NoPref)     ... Done (Avg: 357.80 ms)
+
+  ┌─ Building PGM-Index (Epsilon = 128) ────────────────────
+  │  Build Time:    8537.86 ms
+  │  Index Size:    2681088 Bytes (2.56 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=128, NoPref)    ... Done (Avg: 390.44 ms)
+
+  ┌─ Building PGM-Index (Epsilon = 256) ────────────────────
+  │  Build Time:    8382.56 ms
+  │  Index Size:    1344880 Bytes (1.28 MB)
+  └───────────────────────────────────────────────────────────
+  Testing PGM (Eps=256, NoPref)    ... Done (Avg: 431.43 ms)
+
+  ============================================================
+  Part 2: PGM-Index (Eps=64) Prefetch Strategies
+  ============================================================
+
+  ┌─ Building PGM-Index (Epsilon = 64) for Strategies ────────
+  │  Build Time:    8813.35 ms
+  └───────────────────────────────────────────────────────────
+  Testing PGM (GrpPref, G=1)       ... Done (Avg: 589.14 ms)
+  Testing PGM (GrpPref, G=2)       ... Done (Avg: 526.92 ms)
+  Testing PGM (GrpPref, G=4)       ... Done (Avg: 468.14 ms)
+  Testing PGM (GrpPref, G=8)       ... Done (Avg: 445.25 ms)
+  Testing PGM (GrpPref, G=16)      ... Done (Avg: 433.91 ms)
+  Testing PGM (GrpPref, G=32)      ... Done (Avg: 420.66 ms)
+  Testing PGM (GrpPref, G=64)      ... Done (Avg: 421.05 ms)
+  Testing PGM (GrpPref, G=128)     ... Done (Avg: 410.94 ms)
+  Testing PGM (GrpPref, G=256)     ... Done (Avg: 416.99 ms)
+  Testing PGM (GrpPref, G=512)     ... Done (Avg: 407.49 ms)
+  Testing PGM (GrpPref, G=1024)    ... Done (Avg: 420.17 ms)
+  Testing PGM (GrpPref, G=2048)    ... Done (Avg: 416.62 ms)
+  Testing PGM (GrpPref, G=4096)    ... Done (Avg: 419.86 ms)
+  Testing PGM (GrpPref, G=8192)    ... Done (Avg: 418.68 ms)
+  Testing PGM (StaticSPP, D=1)     ... Done (Avg: 218.92 ms)
+  Testing PGM (StaticSPP, D=2)     ... Done (Avg: 205.14 ms)
+  Testing PGM (StaticSPP, D=4)     ... Done (Avg: 207.31 ms)
+  Testing PGM (StaticSPP, D=8)     ... Done (Avg: 214.66 ms)
+  Testing PGM (StaticSPP, D=16)    ... Done (Avg: 214.25 ms)
+  Testing PGM (StaticSPP, D=32)    ... Done (Avg: 216.25 ms)
+  Testing PGM (StaticSPP, D=64)    ... Done (Avg: 215.84 ms)
+  Testing PGM (StaticSPP, D=128)   ... Done (Avg: 214.20 ms)
+  Testing PGM (StaticSPP, D=256)   ... Done (Avg: 218.81 ms)
+  Testing PGM (StaticSPP, D=512)   ... Done (Avg: 243.33 ms)
+  Testing PGM (StaticSPP, D=1024)  ... Done (Avg: 267.91 ms)
+  Testing PGM (StaticSPP, D=2048)  ... Done (Avg: 270.10 ms)
+  Testing PGM (StaticSPP, D=4096)  ... Done (Avg: 262.36 ms)
+  Testing PGM (StaticSPP, D=8192)  ... Done (Avg: 264.64 ms)
+  Testing PGM (Vectorized, V=1)    ... Done (Avg: 372.64 ms)
+  Testing PGM (Vectorized, V=2)    ... Done (Avg: 274.74 ms)
+  Testing PGM (Vectorized, V=4)    ... Done (Avg: 245.46 ms)
+  Testing PGM (Vectorized, V=8)    ... Done (Avg: 228.95 ms)
+  Testing PGM (Vectorized, V=16)   ... Done (Avg: 229.42 ms)
+  Testing PGM (Vectorized, V=32)   ... Done (Avg: 228.37 ms)
+  Testing PGM (Vectorized, V=64)   ... Done (Avg: 225.06 ms)
+  Testing PGM (Vectorized, V=128)  ... Done (Avg: 224.10 ms)
+  Testing PGM (Vectorized, V=256)  ... Done (Avg: 227.29 ms)
+  Testing PGM (Vectorized, V=512)  ... Done (Avg: 223.76 ms)
+  Testing PGM (Vectorized, V=1024) ... Done (Avg: 227.36 ms)
+  Testing PGM (Vectorized, V=2048) ... Done (Avg: 225.26 ms)
+  Testing PGM (Vectorized, V=4096) ... Done (Avg: 231.75 ms)
+  Testing PGM (Vectorized, V=8192) ... Done (Avg: 230.65 ms)
+  Testing PGM (FSM AMAC, P=1)      ... Done (Avg: 645.92 ms)
+  Testing PGM (FSM AMAC, P=2)      ... Done (Avg: 574.76 ms)
+  Testing PGM (FSM AMAC, P=4)      ... Done (Avg: 521.95 ms)
+  Testing PGM (FSM AMAC, P=8)      ... Done (Avg: 492.87 ms)
+  Testing PGM (FSM AMAC, P=16)     ... Done (Avg: 489.09 ms)
+  Testing PGM (FSM AMAC, P=32)     ... Done (Avg: 494.48 ms)
+  Testing PGM (FSM AMAC, P=64)     ... Done (Avg: 458.85 ms)
+  Testing PGM (FSM AMAC, P=128)    ... Done (Avg: 473.33 ms)
+  Testing PGM (FSM AMAC, P=256)    ... Done (Avg: 469.94 ms)
+  Testing PGM (FSM AMAC, P=512)    ... Done (Avg: 445.98 ms)
+  Testing PGM (FSM AMAC, P=1024)   ... Done (Avg: 473.01 ms)
+  Testing PGM (FSM AMAC, P=2048)   ... Done (Avg: 449.91 ms)
+  Testing PGM (FSM AMAC, P=4096)   ... Done (Avg: 479.06 ms)
+  Testing PGM (FSM AMAC, P=8192)   ... Done (Avg: 463.35 ms)
+
+╔════════════════════════════════════════════════════════════════════════════════════╗
+║ Strategy                    Avg Time(ms)   Latency(ns) Throughput(M/Ops)   Speedup ║
+╠════════════════════════════════════════════════════════════════════════════════════╣
+║ No Prefetch                        712.0         712.0              1.40     1.00x ║
+║ PGM (Eps=4, NoPref)                328.2         328.2              3.05     2.17x ║
+║ PGM (Eps=8, NoPref)                343.4         343.4              2.91     2.07x ║
+║ PGM (Eps=16, NoPref)               326.8         326.8              3.06     2.18x ║
+║ PGM (Eps=32, NoPref)               316.4         316.4              3.16     2.25x ║
+║ PGM (Eps=64, NoPref)               357.8         357.8              2.79     1.99x ║
+║ PGM (Eps=128, NoPref)              390.4         390.4              2.56     1.82x ║
+║ PGM (Eps=256, NoPref)              431.4         431.4              2.32     1.65x ║
+║ PGM (GrpPref, G=1)                 589.1         589.1              1.70     1.21x ║
+║ PGM (GrpPref, G=2)                 526.9         526.9              1.90     1.35x ║
+║ PGM (GrpPref, G=4)                 468.1         468.1              2.14     1.52x ║
+║ PGM (GrpPref, G=8)                 445.2         445.2              2.25     1.60x ║
+║ PGM (GrpPref, G=16)                433.9         433.9              2.30     1.64x ║
+║ PGM (GrpPref, G=32)                420.7         420.7              2.38     1.69x ║
+║ PGM (GrpPref, G=64)                421.1         421.1              2.37     1.69x ║
+║ PGM (GrpPref, G=128)               410.9         410.9              2.43     1.73x ║
+║ PGM (GrpPref, G=256)               417.0         417.0              2.40     1.71x ║
+║ PGM (GrpPref, G=512)               407.5         407.5              2.45     1.75x ║
+║ PGM (GrpPref, G=1024)              420.2         420.2              2.38     1.69x ║
+║ PGM (GrpPref, G=2048)              416.6         416.6              2.40     1.71x ║
+║ PGM (GrpPref, G=4096)              419.9         419.9              2.38     1.70x ║
+║ PGM (GrpPref, G=8192)              418.7         418.7              2.39     1.70x ║
+║ PGM (StaticSPP, D=1)               218.9         218.9              4.57     3.25x ║
+║ PGM (StaticSPP, D=2)               205.1         205.1              4.87     3.47x ║
+║ PGM (StaticSPP, D=4)               207.3         207.3              4.82     3.43x ║
+║ PGM (StaticSPP, D=8)               214.7         214.7              4.66     3.32x ║
+║ PGM (StaticSPP, D=16)              214.3         214.3              4.67     3.32x ║
+║ PGM (StaticSPP, D=32)              216.2         216.2              4.62     3.29x ║
+║ PGM (StaticSPP, D=64)              215.8         215.8              4.63     3.30x ║
+║ PGM (StaticSPP, D=128)             214.2         214.2              4.67     3.32x ║
+║ PGM (StaticSPP, D=256)             218.8         218.8              4.57     3.25x ║
+║ PGM (StaticSPP, D=512)             243.3         243.3              4.11     2.93x ║
+║ PGM (StaticSPP, D=1024)            267.9         267.9              3.73     2.66x ║
+║ PGM (StaticSPP, D=2048)            270.1         270.1              3.70     2.64x ║
+║ PGM (StaticSPP, D=4096)            262.4         262.4              3.81     2.71x ║
+║ PGM (StaticSPP, D=8192)            264.6         264.6              3.78     2.69x ║
+║ PGM (Vectorized, V=1)              372.6         372.6              2.68     1.91x ║
+║ PGM (Vectorized, V=2)              274.7         274.7              3.64     2.59x ║
+║ PGM (Vectorized, V=4)              245.5         245.5              4.07     2.90x ║
+║ PGM (Vectorized, V=8)              229.0         229.0              4.37     3.11x ║
+║ PGM (Vectorized, V=16)             229.4         229.4              4.36     3.10x ║
+║ PGM (Vectorized, V=32)             228.4         228.4              4.38     3.12x ║
+║ PGM (Vectorized, V=64)             225.1         225.1              4.44     3.16x ║
+║ PGM (Vectorized, V=128)            224.1         224.1              4.46     3.18x ║
+║ PGM (Vectorized, V=256)            227.3         227.3              4.40     3.13x ║
+║ PGM (Vectorized, V=512)            223.8         223.8              4.47     3.18x ║
+║ PGM (Vectorized, V=1024)           227.4         227.4              4.40     3.13x ║
+║ PGM (Vectorized, V=2048)           225.3         225.3              4.44     3.16x ║
+║ PGM (Vectorized, V=4096)           231.8         231.8              4.31     3.07x ║
+║ PGM (Vectorized, V=8192)           230.6         230.6              4.34     3.09x ║
+║ PGM (FSM AMAC, P=1)                645.9         645.9              1.55     1.10x ║
+║ PGM (FSM AMAC, P=2)                574.8         574.8              1.74     1.24x ║
+║ PGM (FSM AMAC, P=4)                521.9         521.9              1.92     1.36x ║
+║ PGM (FSM AMAC, P=8)                492.9         492.9              2.03     1.44x ║
+║ PGM (FSM AMAC, P=16)               489.1         489.1              2.04     1.46x ║
+║ PGM (FSM AMAC, P=32)               494.5         494.5              2.02     1.44x ║
+║ PGM (FSM AMAC, P=64)               458.8         458.8              2.18     1.55x ║
+║ PGM (FSM AMAC, P=128)              473.3         473.3              2.11     1.50x ║
+║ PGM (FSM AMAC, P=256)              469.9         469.9              2.13     1.52x ║
+║ PGM (FSM AMAC, P=512)              446.0         446.0              2.24     1.60x ║
+║ PGM (FSM AMAC, P=1024)             473.0         473.0              2.11     1.51x ║
+║ PGM (FSM AMAC, P=2048)             449.9         449.9              2.22     1.58x ║
+║ PGM (FSM AMAC, P=4096)             479.1         479.1              2.09     1.49x ║
+║ PGM (FSM AMAC, P=8192)             463.4         463.4              2.16     1.54x ║

@@ -6,7 +6,7 @@ namespace structures {
 namespace btree {
 namespace algorithms {
 
-// Static Pipelined Batching (H*D)
+// Static Pipelined Batching (H*D) with Zero-copy Pointer Rotation
 template<typename BTree>
 class SoftwarePipelinedPrefetch {
 public:
@@ -16,7 +16,7 @@ public:
     using InnerNode = typename BTree::inner_node;
     using LeafNode = typename BTree::leaf_node;
 
-    // tree height 
+    // 动态获取当前 B+ 树的高度，以精确定义流水线阶段数
     static int get_tree_height(BTree& btree) {
         auto root = btree.get_root();
         if (!root) return 0;
@@ -41,7 +41,7 @@ public:
         return lo;
     }
 
-    template<size_t GROUP_SIZE = 4> // D = GROUP_SIZE
+    template<size_t GROUP_SIZE = 64> // Default prefetch distance D
     static std::vector<bool> batch_lookup(
         BTree& btree,
         const std::vector<Key>& queries,
@@ -53,93 +53,93 @@ public:
         auto root = btree.get_root();
         if (!root || queries.empty()) return found;
 
-        // 1. determine tree height and set pipeline depth
-        const int tree_height = get_tree_height(btree);
-        const int pipeline_depth = tree_height; 
-        
-        // 2. define task structure for each pipeline stage
+        int H = get_tree_height(btree);
+        if (H <= 0) return found;
+
         struct Task {
             size_t query_idx;
             const Node* node;
-            bool active;
         };
-
-        // 3. construct pipeline batches
-        std::vector<std::vector<Task>> batches(pipeline_depth);
-        
-        // init batches
-        for(int i=0; i<pipeline_depth; ++i) {
-            batches[i].resize(GROUP_SIZE, {0, nullptr, false});
+        int num_stages = H+1;
+        // 分配 num_stages * GROUP_SIZE 大小的连续内存，用作流水线各 Stage 的缓冲
+        std::vector<Task> memory(num_stages * GROUP_SIZE, {0, nullptr});
+        // 指针数组，stages[s] 指向当前处于第 s 阶段的 Task 批次
+        std::vector<Task*> stages(num_stages);
+        for (int i = 0; i < num_stages; ++i) {
+            stages[i] = &memory[i * GROUP_SIZE];
         }
 
         size_t next_query_idx = 0;
         size_t finished_count = 0;
         size_t total_queries = queries.size();
 
-        // 4. main loop
         while (finished_count < total_queries) {
 
-            // Stage A: check if last stage has finished tasks and process them
-            auto& last_batch = batches[pipeline_depth - 1];
+            // --- Stage H: Process Leaf Nodes ---
+            Task* leaf_stage = stages[H];
             for (size_t i = 0; i < GROUP_SIZE; ++i) {
-                if (last_batch[i].active) {
-                    const LeafNode* leaf = static_cast<const LeafNode*>(last_batch[i].node);
-                    Key key = queries[last_batch[i].query_idx];
+                if (leaf_stage[i].node) {
+                    const LeafNode* leaf = static_cast<const LeafNode*>(leaf_stage[i].node);
+                    Key key = queries[leaf_stage[i].query_idx];
                     
                     int slot = find_lower(leaf, key);
                     
                     if (slot < leaf->slotuse && key == leaf->slotkey[slot]) {
                         if (!BTree::traits::selfverify) 
-                            results[last_batch[i].query_idx] = leaf->slotdata[slot];
-                        found[last_batch[i].query_idx] = true;
+                            results[leaf_stage[i].query_idx] = leaf->slotdata[slot];
+                        found[leaf_stage[i].query_idx] = true;
                     } else {
-                        found[last_batch[i].query_idx] = false;
+                        found[leaf_stage[i].query_idx] = false;
                     }
                     
                     finished_count++;
-                    last_batch[i].active = false; 
+                    leaf_stage[i].node = nullptr; // Mark as finished
                 }
             }
 
-            // Stage B: Shift
-            for (int stage = pipeline_depth - 2; stage >= 0; --stage) {
-                auto& curr_batch = batches[stage];
-                auto& next_batch = batches[stage + 1];
-
+            // --- Stage H-1 down to 1: Process Inner Nodes ---
+            for (int s = H - 1; s >= 1; --s) {
+                Task* inner_stage = stages[s];
                 for (size_t i = 0; i < GROUP_SIZE; ++i) {
-                    if (curr_batch[i].active) {
-                        const InnerNode* inner = static_cast<const InnerNode*>(curr_batch[i].node);
-                        Key key = queries[curr_batch[i].query_idx];
+                    if (inner_stage[i].node) {
+                        const InnerNode* inner = static_cast<const InnerNode*>(inner_stage[i].node);
+                        Key key = queries[inner_stage[i].query_idx];
                         
                         int slot = find_lower(inner, key);
                         const Node* child = inner->childid[slot];
 
-                        next_batch[i].query_idx = curr_batch[i].query_idx;
-                        next_batch[i].node = child;
-                        next_batch[i].active = true;
-
-                        // prefetch child node and its next cache line to reduce latency
-                        __builtin_prefetch(child, 0, 3);
-                        __builtin_prefetch((const char*)child + 64, 0, 3);
+                        inner_stage[i].node = child;
                         
-                        curr_batch[i].active = false; 
-                    } else {
-                        next_batch[i].active = false;
+                        __builtin_prefetch(child, 0, 1);
+                        __builtin_prefetch(reinterpret_cast<const char*>(child) + 64, 0, 1);
+                        __builtin_prefetch(reinterpret_cast<const char*>(child) + 128, 0, 1);
+                        __builtin_prefetch(reinterpret_cast<const char*>(child) + 192, 0, 1);
                     }
                 }
             }
 
-            // Stage C: Refill
-            auto& first_batch = batches[0];
+            // --- Rotate Pipeline Stages (Zero-copy Shift) ---
+            // stages[0] 变成 stages[1], stages[H-2] 变成 stages[H-1]
+            // 原先的 stages[H] (已处理完空闲) 变成新的 stages[0]
+            Task* empty_stage = stages[H];
+            for (int s = H ; s > 0; --s) {
+                stages[s] = stages[s - 1];
+            }
+            stages[0] = empty_stage;
+
+            // --- Stage 0 Refill: Feed new queries into the pipeline ---
+            Task* refill_stage = stages[0];
             for (size_t i = 0; i < GROUP_SIZE; ++i) {
                 if (next_query_idx < total_queries) {
-                    first_batch[i].query_idx = next_query_idx++;
-                    first_batch[i].node = root;
-                    first_batch[i].active = true;
+                    refill_stage[i].query_idx = next_query_idx++;
+                    refill_stage[i].node = root;
                     
-                    __builtin_prefetch(root, 0, 3);
+                    __builtin_prefetch(root, 0, 1);
+                    __builtin_prefetch(reinterpret_cast<const char*>(root) + 64, 0, 1);
+                    __builtin_prefetch(reinterpret_cast<const char*>(root) + 128, 0, 1);
+                    __builtin_prefetch(reinterpret_cast<const char*>(root) + 192, 0, 1);
                 } else {
-                    first_batch[i].active = false;
+                    refill_stage[i].node = nullptr;
                 }
             }
         }
@@ -147,7 +147,7 @@ public:
     }
 
     static std::string name() {
-        return "Static SPP (H*D)";
+        return "SPP (H*D)";
     }
     
     static std::vector<bool> batch_lookup_d4(BTree& t, const std::vector<Key>& q, std::vector<Value>& r) { return batch_lookup<4>(t, q, r); }

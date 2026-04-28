@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(PrefetchBench)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG -g -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG -flto")
 set(CMAKE_BUILD_TYPE Release)
 
 # 包含头文件目录

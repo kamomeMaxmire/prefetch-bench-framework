@@ -17,6 +17,7 @@
 #include "../include/structures/btree/BTree.hpp"
 #include "../include/structures/btree/profiling/LayerProfiler.hpp"
 
+#include "../include/structures/PGM/PGMWrapper.hpp" 
 using namespace utils;
 using namespace data;
 using namespace structures::btree;
@@ -71,16 +72,17 @@ TestResult run_benchmark(
     }
     
     // 3. 计算统计数据
-    double sum = 0;
-    double min_t = times[0];
-    double max_t = times[0];
+    std::sort(times.begin(), times.end());
+    double min_t = times.front();
+    double max_t = times.back();
     
-    for (double t : times) {
-        sum += t;
-        if (t < min_t) min_t = t;
-        if (t > max_t) max_t = t;
+    // 采用“最优三次平均 (Average of Top 3)”来逼近绝对物理极限，并防止单次 Lucky Run
+    double avg_time = 0.0;
+    int top_k = std::min(3, NUM_RUNS);
+    for (int i = 0; i < top_k; ++i) {
+        avg_time += times[i];
     }
-    double avg_time = sum / NUM_RUNS;
+    avg_time /= top_k;
     
     // 4. 计算吞吐量和延迟
     double throughput = (query_count / avg_time) * 1000.0 / 1e6; // M ops/s
@@ -90,6 +92,110 @@ TestResult run_benchmark(
     
     return { name, avg_time, min_t, max_t, throughput, latency };
 }
+
+// =====================================================================
+// 利用 C++17 折叠表达式，自动展开所有并发度 (1, 2, 4... 8192) 的测试代码
+// =====================================================================
+template <typename BTreeType, size_t... Ns>
+struct BTreeBenchRunner {
+    static void run_all(BTreeWithPrefetch<BTreeType>& btree, const std::vector<uint64_t>& queries, std::vector<TestResult>& results) {
+        // --- 2. Group Prefetch ---
+        (results.push_back(run_benchmark(
+            "Group Prefetch (G=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return btree.template batch_lookup_group_prefetch<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+
+        // --- 3. SPP ---
+        (results.push_back(run_benchmark(
+            "SPP (D=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return btree.template batch_lookup_spp<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+
+        // --- 4. Vectorized ---
+        (results.push_back(run_benchmark(
+            "Vectorized (V=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return btree.template batch_lookup_vectorized<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+
+        // --- 5. FSM AMAC ---
+        (results.push_back(run_benchmark(
+            "FSM AMAC (P=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return btree.template batch_lookup_fsm_amac<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+    }
+};
+
+// =====================================================================
+// 利用 C++17 折叠表达式，自动展开所有并发度的 PGM 测试代码
+// =====================================================================
+template <typename PGMType, size_t... Ns>
+struct PGMBenchRunner {
+    static void run_all(PGMType& pgm_tree, const std::vector<uint64_t>& queries, std::vector<TestResult>& results) {
+        // --- 2. Group Prefetch ---
+        (results.push_back(run_benchmark(
+            "PGM (GrpPref, G=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return pgm_tree.template batch_lookup_group_prefetch<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+
+        // --- 3. SPP ---
+        (results.push_back(run_benchmark(
+            "PGM (StaticSPP, D=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return pgm_tree.template batch_lookup_static_spp<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+
+        // --- 4. Vectorized ---
+        (results.push_back(run_benchmark(
+            "PGM (Vectorized, V=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return pgm_tree.template batch_lookup_vectorized<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+
+        // --- 5. FSM AMAC ---
+        (results.push_back(run_benchmark(
+            "PGM (FSM AMAC, P=" + std::to_string(Ns) + ")",
+            [&](std::vector<uint64_t>& v){ return pgm_tree.template batch_lookup_fsm_amac<Ns>(queries, v); },
+            queries.size()
+        )), ...);
+    }
+};
+
+// =====================================================================
+// 利用 C++17 折叠表达式，自动展开不同 Epsilon 的 PGM 构建与基准测试
+// =====================================================================
+template <size_t... Eps>
+struct PGMEpsilonRunner {
+    static void run_all(
+        const std::vector<std::pair<uint64_t, uint64_t>>& data,
+        const std::vector<uint64_t>& queries, 
+        std::vector<TestResult>& results
+    ) {
+        ([&]() {
+            std::cout << "\n  ┌─ Building PGM-Index (Epsilon = " << std::left << std::setw(3) << Eps << ") ────────────────────" << std::endl;
+            using PGMType = structures::pgm::PGMWrapper<uint64_t, uint64_t, Eps>;
+            PGMType pgm_tree;
+            
+            Timer t;
+            pgm_tree.bulk_load(data);
+            
+            std::cout << "  │  Build Time:    " << std::fixed << std::setprecision(2) << t.elapsed_ms() << " ms" << std::endl;
+            std::cout << "  │  Index Size:    " << pgm_tree.index.size_in_bytes() << " Bytes (" 
+                      << (pgm_tree.index.size_in_bytes() / 1024.0 / 1024.0) << " MB)" << std::endl;
+            std::cout << "  └───────────────────────────────────────────────────────────" << std::endl;
+
+            results.push_back(run_benchmark(
+                "PGM (Eps=" + std::to_string(Eps) + ", NoPref)", 
+                [&](std::vector<uint64_t>& v){ return pgm_tree.batch_lookup_no_prefetch(queries, v); }, 
+                queries.size()
+            ));
+        }(), ...);
+    }
+};
 
 void test_strategies(
     const std::vector<uint64_t>& keys, 
@@ -116,6 +222,9 @@ void test_strategies(
     
     auto stats = btree.get_stats();
 
+    size_t leaf_size = stats.leaves * sizeof(typename BTreeType::leaf_node);
+    size_t inner_size = stats.innernodes * sizeof(typename BTreeType::inner_node);
+    size_t total_btree_size = leaf_size + inner_size;
     // 测量真实树高
     size_t tree_height = 0;
     stx::g_tree_height = 0; 
@@ -127,149 +236,49 @@ void test_strategies(
     std::cout << "  │  Build Time:    " << std::fixed << std::setprecision(2) << build_time << " ms" << std::endl;
     std::cout << "  │  Tree Height:   " << tree_height << " levels" << std::endl;
     std::cout << "  │  Total Keys:    " << stats.itemcount << std::endl;
+    std::cout << "  │  Index Size:    " << total_btree_size << " Bytes (" 
+              << (total_btree_size / 1024.0 / 1024.0) << " MB)" << std::endl;
     std::cout << "  └───────────────────────────────────────────────────────────" << std::endl;
-    
+
     std::cout << "\n  Running Benchmark (" << NUM_RUNS << " runs per strategy)..." << std::endl;
-    // 使用 '-' 而不是特殊字符，避免编译警告
     std::cout << "  " << std::string(60, '-') << std::endl;
+
+    // --- 1. Baseline ---
+    results.push_back(run_benchmark("No Prefetch", [&](std::vector<uint64_t>& v){ return btree.batch_lookup_no_prefetch(queries, v); }, queries.size()));
+
+    // // --- 使用模板展开一键运行所有的配置参数 ---
+    // // 参数列表：1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192
+    // using BTreeRunner = BTreeBenchRunner<BTreeType, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192>;
+    // BTreeRunner::run_all(btree, queries, results);
+
+    // =============================================================
+    // Part 1: PGM-Index Epsilon Scaling Test (Baseline Only)
+    // =============================================================
+    std::cout << "\n  " << std::string(60, '=') << std::endl;
+    std::cout << "  Part 1: PGM-Index Epsilon Scaling Test" << std::endl;
+    std::cout << "  " << std::string(60, '=') << std::endl;
     
-    // --- 1. Baseline: No Prefetch ---
-    results.push_back(run_benchmark(
-        "No Prefetch", 
-        [&](std::vector<uint64_t>& v){ return btree.batch_lookup_no_prefetch(queries, v); }, 
-        queries.size()
-    ));
-    // // --- 2. Group Prefetch (G=8) ---
-    // results.push_back(run_benchmark(
-    //     "Group Prefetch (G=8)", 
-    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<8>(queries, v); }, 
-    //     queries.size()
-    // ));
-    
-    // // --- 2. Group Prefetch (G=16) ---
-    // results.push_back(run_benchmark(
-    //     "Group Prefetch (G=16)", 
-    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<16>(queries, v); }, 
-    //     queries.size()
-    // ));
-    
-    //  // --- 3. Group Prefetch (G=24) ---
-    // results.push_back(run_benchmark(
-    //     "Group Prefetch (G=24)", 
-    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<24>(queries, v); }, 
-    //     queries.size()
-    // ));
-    // // --- 3. Group Prefetch (G=32) ---
-    // results.push_back(run_benchmark(
-    //     "Group Prefetch (G=32)", 
-    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<32>(queries, v); }, 
-    //     queries.size()
-    // ));
-    
-    //  // --- 3. Group Prefetch (G=48) ---
-    // results.push_back(run_benchmark(
-    //     "Group Prefetch (G=48)", 
-    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<48>(queries, v); }, 
-    //     queries.size()
-    // ));
-    // // --- 4. Group Prefetch (G=64) ---
-    // results.push_back(run_benchmark(
-    //     "Group Prefetch (G=64)", 
-    //     [&](std::vector<uint64_t>& v){ return btree.batch_lookup_group_prefetch<64>(queries, v); }, 
-    //     queries.size()
-    // ));
+    using PGMEpsRunner = PGMEpsilonRunner<4,8,16, 32, 64, 128, 256>;
+    PGMEpsRunner::run_all(data, queries, results);
 
-    // results.push_back(run_benchmark(
-    //     "SPP (D=1)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_spp<1>(queries, v); 
-    //     }, 
-    //     queries.size()
-    // ));
+    // =============================================================
+    // Part 2: PGM-Index (Epsilon = 64) Prefetch Strategies
+    // =============================================================
+    std::cout << "\n  " << std::string(60, '=') << std::endl;
+    std::cout << "  Part 2: PGM-Index (Eps=64) Prefetch Strategies" << std::endl;
+    std::cout << "  " << std::string(60, '=') << std::endl;
 
-    // // 测试 Static SPP (D=8, 总并发=8*树高)
-    // results.push_back(run_benchmark(
-    //     "SPP (D=2)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_spp<2>(queries, v); 
-    //     }, 
-    //     queries.size()
-    // ));
-    // results.push_back(run_benchmark(
-    //     "SPP (D=3)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_spp<3>(queries, v); 
-    //     }, 
-    //     queries.size()
-    // ));
-    // results.push_back(run_benchmark(
-    //     "SPP (D=4)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_spp<4>(queries, v); 
-    //     }, 
-    //     queries.size()
-    // ));
-    // // =============================================================
-    // // 运行 Vectorized 基准测试
-    // // =============================================================
-    // results.push_back(run_benchmark(
-    //     "Vectorized (V=32)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_vectorized<32>(queries, v); 
-    //     }, 
-    //     queries.size()
-    // ));
+    std::cout << "\n  ┌─ Building PGM-Index (Epsilon = 64) for Strategies ────────" << std::endl;
+    using MyPGM = structures::pgm::PGMWrapper<uint64_t, uint64_t, 64>;
+    MyPGM pgm_tree;
+    Timer pgm_timer;
+    pgm_tree.bulk_load(data);
+    std::cout << "  │  Build Time:    " << std::fixed << std::setprecision(2) << pgm_timer.elapsed_ms() << " ms" << std::endl;
+    std::cout << "  └───────────────────────────────────────────────────────────" << std::endl;
 
-    // results.push_back(run_benchmark(
-    //     "Vectorized (V=64)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_vectorized<64>(queries, v); 
-    //     }, 
-    //     queries.size()
-    // ));
-    // // =============================================================
-    // // 运行 AMAC 基准测试
-    // // =============================================================
-    // // =============================================================
-    // // 运行 FSM AMAC 基准测试 (梯度 Pool Size)
-    // // =============================================================
-    
-    // results.push_back(run_benchmark(
-    //     "FSM AMAC (P=16)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_fsm_amac<16>(queries, v); 
-    //     }, queries.size()
-    // ));
+    using PGMRunner = PGMBenchRunner<MyPGM, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192>;
+    PGMRunner::run_all(pgm_tree, queries, results);
 
-    // results.push_back(run_benchmark(
-    //     "FSM AMAC (P=32)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_fsm_amac<32>(queries, v); 
-    //     }, queries.size()
-    // ));
-
-    // results.push_back(run_benchmark(
-    //     "FSM AMAC (P=64)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_fsm_amac<64>(queries, v); 
-    //     }, queries.size()
-    // ));
-
-    // results.push_back(run_benchmark(
-    //     "FSM AMAC (P=128)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_fsm_amac<128>(queries, v); 
-    //     }, queries.size()
-    // ));
-
-    // results.push_back(run_benchmark(
-    //     "FSM AMAC (P=256)", 
-    //     [&](std::vector<uint64_t>& v){ 
-    //         return btree.batch_lookup_fsm_amac<256>(queries, v); 
-    //     }, queries.size()
-    // ));
-    // ================= 结果输出优化版 =================
-    
     // 1. 定义每一列的宽度 (这样修改起来方便，保证上下对齐)
     const int W_NAME = 26;  // 策略名称列宽
     const int W_TIME = 14;  // 时间列宽
@@ -334,20 +343,13 @@ void test_strategies(
     // print_line("╚", "═", "╝");
     // // 在结果表格打印后加
     // std::cout << "\n\n=== Per-Layer Cycle Profile ===\n";
-
-    // {
-    // using P = structures::btree::profiling::LayerProfiler<BTreeType>;
-    // const double CPU_GHZ = 2.60;  // 用 lscpu | grep MHz 查你的主频
-
-    // P::run(btree.get_tree(), queries, "No Prefetch",     P::MODE_SERIAL, 0,  CPU_GHZ);
-    // }
 }
 
 int main() {
     std::cout << "\n=== B+ Tree Group Prefetch Benchmark ===" << std::endl;
     
     // 1. 加载数据集
-    const std::string dataset_name = "books_200M"; 
+    const std::string dataset_name = "osm_cellids_200M"; 
     std::string data_file = "data/" + dataset_name + "_uint64";
     
     std::cout << "[Loading] Reading " << data_file << "..." << std::endl;
@@ -367,10 +369,15 @@ int main() {
     }
     
     // 2. 生成查询
-    // 这里的 query_count 可以调整，100万比较快，1000万更稳定
     const size_t query_count = 1000000; 
     std::cout << "[Queries] Generating " << query_count << " queries from dataset..." << std::endl;
     auto queries = SOSDDataLoader::generate_queries(keys, query_count);
+
+    // 强制打乱 Queries，破坏数据的局部性，使得访问随机分布到树的不同分支
+    // 这是压榨 Cache / 展现出预取威力的关键步骤！
+    std::cout << "    Shuffling queries to maximize L3 Cache Misses..." << std::endl;
+    std::mt19937 g(42); 
+    std::shuffle(queries.begin(), queries.end(), g);
 
     // 3. 运行测试
     test_strategies(keys, queries);

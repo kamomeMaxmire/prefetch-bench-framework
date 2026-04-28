@@ -11,6 +11,11 @@
 #include "algorithms/SPP.hpp" 
 #include "algorithms/Vectorized.hpp"
 #include "algorithms/AMAC.hpp"
+#include "algorithms/NoPrefetch_Linear.hpp"
+#include "algorithms/GroupPrefetch_Linear.hpp"
+#include "algorithms/SPP_Linear.hpp"
+#include "algorithms/AMAC_Linear.hpp"
+#include "algorithms/Vectorized_Linear.hpp"
 
 namespace structures {
 namespace btree {
@@ -79,6 +84,17 @@ public:
         // 调用外部策略，传入 tree_ 实例
         return algorithms::NoPrefetch<BTreeType>::batch_lookup(tree_, queries, results);
     }
+
+    // ======================
+    // 新增：No Prefetch (Linear) 成员函数
+    // ======================
+    std::vector<bool> batch_lookup_no_prefetch_linear(
+        const std::vector<key_type>& queries,
+        std::vector<mapped_type>& results
+    ) {
+        return algorithms::NoPrefetch_Linear<BTreeType>::batch_lookup(tree_, queries, results);
+    }
+
     
     // =============================================================
     // 策略 2: Group Prefetch
@@ -93,17 +109,38 @@ public:
         return algorithms::GroupPrefetch<BTreeType>::template batch_lookup<GROUP_SIZE>(tree_, queries, results);
     }
 
+    // ======================
+    // 新增：Group Prefetch (Linear) 成员函数
+    // ======================
+    template <size_t GROUP_SIZE = 32>
+    std::vector<bool> batch_lookup_group_prefetch_linear(
+        const std::vector<key_type>& queries,
+       std::vector<mapped_type>& results
+    ) {
+       return algorithms::GroupPrefetch_Linear<BTreeType>::template batch_lookup<GROUP_SIZE>(tree_, queries, results);
+    }
     // =============================================================
     // 策略 3: SPP (Software Pipelined Prefetching)
     // 逻辑实现：algorithms/SPP.hpp
     // =============================================================
-    template<size_t PIPELINE_DEPTH = 4>
+    template<size_t PIPELINE_DEPTH = 64>
     std::vector<bool> batch_lookup_spp(
         const std::vector<key_type>& queries,
         std::vector<mapped_type>& results
     ) {
         // 调用外部策略
         return algorithms::SoftwarePipelinedPrefetch<BTreeType>::template batch_lookup<PIPELINE_DEPTH>(tree_, queries, results);
+    }
+    // ======================
+    // 新增：SPP (Linear) 成员函数
+    // 完全对齐原版batch_lookup_spp的写法
+    // ======================
+    template<size_t PIPELINE_DEPTH = 4>
+    std::vector<bool> batch_lookup_spp_linear(
+        const std::vector<key_type>& queries,
+        std::vector<mapped_type>& results
+    ) {
+        return algorithms::SoftwarePipelinedPrefetch_Linear<BTreeType>::template batch_lookup<PIPELINE_DEPTH>(tree_, queries, results);
     }
     // =============================================================
     // 策略 4: Vectorized Search (纯向量化计算，无显式预取)
@@ -114,6 +151,16 @@ public:
         std::vector<mapped_type>& results
     ) {
         return algorithms::VectorizedSearch<BTreeType>::template batch_lookup<VECTOR_SIZE>(tree_, queries, results);
+    }
+    // ======================
+    // 新增：Vectorized (Linear) 成员函数
+    // ======================
+    template<size_t VECTOR_SIZE = 64>
+    std::vector<bool> batch_lookup_vectorized_linear(
+        const std::vector<typename BTreeType::key_type>& queries,
+        std::vector<typename BTreeType::data_type>& results
+    ) {
+        return algorithms::VectorizedSearch_Linear<BTreeType>::template batch_lookup<VECTOR_SIZE>(tree_, queries, results);
     }
     // =============================================================
     // 策略 5: AMAC (Asynchronous Memory Access Chaining)
@@ -131,6 +178,17 @@ public:
     ) {
         // 传入指定的 POOL_SIZE，第二个参数 IGNORED 传 0 即可
         return algorithms::AMACSearch<BTreeType>::template batch_lookup<POOL_SIZE, 0>(tree_, queries, results); 
+    }
+    // ======================
+    // 新增：FSM AMAC (Linear) 成员函数
+    // ======================
+    template<size_t POOL_SIZE = 64>
+    std::vector<bool> batch_lookup_fsm_amac_linear(
+        const std::vector<typename BTreeType::key_type>& queries,
+        std::vector<typename BTreeType::data_type>& results
+    ) {
+        // 传入指定的POOL_SIZE，第二个参数IGNORED固定传0，和原版完全一致
+        return algorithms::AMACSearch_Linear<BTreeType>::template batch_lookup<POOL_SIZE, 0>(tree_, queries, results);
     }
     
 };
