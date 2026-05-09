@@ -65,7 +65,6 @@ public:
         }
 
         size_t all_done = 0;
-        size_t k = 0;
 
         while (all_done < n) {
             // 内部采用标准 for 循环，消灭取模和分支跳转开销，极大提升分支预测命中率

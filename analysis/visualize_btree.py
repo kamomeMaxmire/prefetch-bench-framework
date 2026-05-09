@@ -189,7 +189,7 @@ def analyze_and_visualize(df, output_dir='analysis/plots'):
     print("\n" + "="*62 + "\n")
 
 if __name__ == '__main__':
-    results_file = os.path.join(BASE_DIR, 'results', 'btree_benchmark.txt')
+    results_file = os.path.join(BASE_DIR, 'results', 'Btree_benchmark.txt')
     
     if not os.path.exists(results_file):
         print(f"Error: Results file '{results_file}' not found.")

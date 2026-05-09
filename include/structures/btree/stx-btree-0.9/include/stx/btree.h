@@ -34,7 +34,14 @@
 
 #ifndef _STX_BTREE_H_
 #define _STX_BTREE_H_
+// 在文件最开头（#pragma once 之后）加上
+#ifndef MANUAL_LEAF_SLOTS
+#define MANUAL_LEAF_SLOTS 1024  // 默认值，没传参时用这个
+#endif
 
+#ifndef MANUAL_INNER_SLOTS
+#define MANUAL_INNER_SLOTS 512
+#endif
 // *** Required Headers from the STL
 
 #include <algorithm>
@@ -98,11 +105,11 @@ struct btree_default_set_traits
 
     /// Number of slots in each leaf of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int    leafslots = BTREE_MAX( 8, 256 / (sizeof(_Key)) );
+    static const int    leafslots = BTREE_MAX( 8, MANUAL_LEAF_SLOTS );
 
     /// Number of slots in each inner node of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int    innerslots = BTREE_MAX( 8, 256 / (sizeof(_Key) + sizeof(void*)) );
+    static const int    innerslots = BTREE_MAX( 8, MANUAL_INNER_SLOTS );
 
     /// As of stx-btree-0.9, the code does linear search in find_lower() and
     /// find_upper() instead of binary_search, unless the node size is larger
@@ -128,11 +135,11 @@ struct btree_default_map_traits
 
     /// Number of slots in each leaf of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int    leafslots = BTREE_MAX( 8, 256 / (sizeof(_Key) + sizeof(_Data)) );
+    static const int    leafslots = BTREE_MAX( 8, MANUAL_LEAF_SLOTS );
 
     /// Number of slots in each inner node of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int    innerslots = BTREE_MAX( 8, 256 / (sizeof(_Key) + sizeof(void*)) );
+    static const int    innerslots = BTREE_MAX( 8, MANUAL_INNER_SLOTS );
 
     /// As of stx-btree-0.9, the code does linear search in find_lower() and
     /// find_upper() instead of binary_search, unless the node size is larger

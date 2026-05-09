@@ -2,6 +2,12 @@
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <cstdint>
+#include <type_traits>
+
+#if defined(__AVX2__) || defined(__AVX512F__)
+#include <immintrin.h>
+#endif
 
 namespace structures {
 namespace btree {
@@ -42,6 +48,63 @@ public:
         return lo;
     }
 
+    template <typename NodeType>
+    static inline int simd_lower_bound_u64(const NodeType* n, const Key& key) {
+        const int slotuse = n->slotuse;
+        if (slotuse == 0) return 0;
+
+        if constexpr (!std::is_same<Key, uint64_t>::value) {
+            return find_lower(n, key);
+        } else {
+            const uint64_t* keys = n->slotkey;
+            int pos = 0;
+
+#if defined(__AVX512F__)
+            const __m512i sign = _mm512_set1_epi64(static_cast<long long>(0x8000000000000000ULL));
+            const __m512i query = _mm512_xor_si512(
+                _mm512_set1_epi64(static_cast<long long>(key)),
+                sign
+            );
+
+            for (; pos + 8 <= slotuse; pos += 8) {
+                __m512i values = _mm512_loadu_si512(reinterpret_cast<const void*>(keys + pos));
+                values = _mm512_xor_si512(values, sign);
+
+                // first slot where key <= slotkey[pos], implemented as !(key > slotkey[pos])
+                const __mmask8 greater = _mm512_cmpgt_epi64_mask(query, values);
+                const uint32_t candidate_mask = static_cast<uint32_t>((~greater) & 0xFF);
+                if (candidate_mask) {
+                    return pos + __builtin_ctz(candidate_mask);
+                }
+            }
+#elif defined(__AVX2__)
+            const __m256i sign = _mm256_set1_epi64x(static_cast<long long>(0x8000000000000000ULL));
+            const __m256i query = _mm256_xor_si256(
+                _mm256_set1_epi64x(static_cast<long long>(key)),
+                sign
+            );
+
+            for (; pos + 4 <= slotuse; pos += 4) {
+                __m256i values = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(keys + pos));
+                values = _mm256_xor_si256(values, sign);
+
+                // first slot where key <= slotkey[pos], implemented as !(key > slotkey[pos])
+                const __m256i greater = _mm256_cmpgt_epi64(query, values);
+                const uint32_t greater_mask = static_cast<uint32_t>(_mm256_movemask_pd(_mm256_castsi256_pd(greater)));
+                const uint32_t candidate_mask = (~greater_mask) & 0xF;
+                if (candidate_mask) {
+                    return pos + __builtin_ctz(candidate_mask);
+                }
+            }
+#endif
+
+            for (; pos < slotuse; ++pos) {
+                if (key <= keys[pos]) return pos;
+            }
+            return slotuse;
+        }
+    }
+
     template<size_t VECTOR_SIZE = 64>
     static std::vector<bool> batch_lookup(
         BTree& btree,
@@ -57,8 +120,7 @@ public:
         const size_t total_queries = queries.size();
         
         const Node* curr_nodes[VECTOR_SIZE];
-        int lo[VECTOR_SIZE];
-        int hi[VECTOR_SIZE];
+        int slots[VECTOR_SIZE];
 
         for (size_t batch_start = 0; batch_start < total_queries; batch_start += VECTOR_SIZE) {
             
@@ -75,45 +137,23 @@ public:
             // 2. traverse inner nodes
             while (!curr_nodes[0]->isleafnode()) {
                 for (size_t i = 0; i < current_batch_size; ++i) {
-                    lo[i] = 0;
-                    hi[i] = curr_nodes[i]->slotuse;
-                }
-                for (int step = 0; step < INNER_STEPS; ++step) {
-                    for (size_t i = 0; i < current_batch_size; ++i) {
-                        if (lo[i] < hi[i]) {
-                            const InnerNode* inner = static_cast<const InnerNode*>(curr_nodes[i]);
-                            int mid = (lo[i] + hi[i]) >> 1;
-                            bool cmp = batch_queries[i] > inner->slotkey[mid];
-                            lo[i] = cmp ? mid + 1 : lo[i];
-                            hi[i] = cmp ? hi[i] : mid;
-                        }
-                    }
+                    const InnerNode* inner = static_cast<const InnerNode*>(curr_nodes[i]);
+                    slots[i] = simd_lower_bound_u64(inner, batch_queries[i]);
                 }
                 for (size_t i = 0; i < current_batch_size; ++i) {
                     const InnerNode* inner = static_cast<const InnerNode*>(curr_nodes[i]);
-                    curr_nodes[i] = inner->childid[lo[i]]; 
+                    curr_nodes[i] = inner->childid[slots[i]]; 
                 }
             }
 
             // 3. handle leaf nodes and gather results
             for (size_t i = 0; i < current_batch_size; ++i) {
-                lo[i] = 0;
-                hi[i] = curr_nodes[i]->slotuse;
-            }
-            for (int step = 0; step < LEAF_STEPS; ++step) {
-                for (size_t i = 0; i < current_batch_size; ++i) {
-                    if (lo[i] < hi[i]) {
-                        const LeafNode* leaf = static_cast<const LeafNode*>(curr_nodes[i]);
-                        int mid = (lo[i] + hi[i]) >> 1;
-                        bool cmp = batch_queries[i] > leaf->slotkey[mid];
-                        lo[i] = cmp ? mid + 1 : lo[i];
-                        hi[i] = cmp ? hi[i] : mid;
-                    }
-                }
+                const LeafNode* leaf = static_cast<const LeafNode*>(curr_nodes[i]);
+                slots[i] = simd_lower_bound_u64(leaf, batch_queries[i]);
             }
             for (size_t i = 0; i < current_batch_size; ++i) {
                 const LeafNode* leaf = static_cast<const LeafNode*>(curr_nodes[i]);
-                int slot = lo[i];
+                int slot = slots[i];
                 Key key = batch_queries[i];
                 
                 if (slot < leaf->slotuse && key == leaf->slotkey[slot]) {

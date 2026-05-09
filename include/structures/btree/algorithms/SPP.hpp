@@ -61,12 +61,17 @@ public:
             const Node* node;
         };
         int num_stages = H+1;
-        // 分配 num_stages * GROUP_SIZE 大小的连续内存，用作流水线各 Stage 的缓冲
-        std::vector<Task> memory(num_stages * GROUP_SIZE, {0, nullptr});
+
+        // 【性能黑魔法】增加 Padding，打破完美 2 的幂次对齐导致的 L1 Cache 组冲突 (Cache Aliasing)
+        constexpr size_t PAD = 2; // 故意错开 32 字节
+        size_t stride = GROUP_SIZE + PAD;
+        
+        // 分配 num_stages * stride 大小的连续内存，用作流水线各 Stage 的缓冲
+        std::vector<Task> memory(num_stages * stride, {0, nullptr});
         // 指针数组，stages[s] 指向当前处于第 s 阶段的 Task 批次
         std::vector<Task*> stages(num_stages);
         for (int i = 0; i < num_stages; ++i) {
-            stages[i] = &memory[i * GROUP_SIZE];
+            stages[i] = &memory[i * stride];
         }
 
         size_t next_query_idx = 0;
